@@ -13,44 +13,38 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-public class StockDataProcessing {
+public class StockApp {
     public static void main(String[] args) {
-        if (args.length < 5) {
-            System.err.println("Please provide the following parameters: <topic> <D (days)> <P (percentage)> <delay (A or C)> <bootstrap-servers>");
-            System.exit(1);
-        }
 
-        String topic = args[0]; // temat Kafki
-        int D = Integer.parseInt(args[1]); // długość okresu czasu w dniach
-        double P = Double.parseDouble(args[2]) / 100; // minimalny stosunek różnicy kursów
-        String delay = args[3]; // tryb przetwarzania: A lub C
-        String bootstrapServers = args[4]; // Kafka bootstrap servers
+        int D = Integer.parseInt(args[1]);
+        double P = Double.parseDouble(args[2]) / 100;
+        String delay = args[3];
+        String kafkaTopic = args[0];
+        String clusterAddress = args[4];
         String staticDataPath = args[5];
 
-        Map<String, List<StockData>> stockDataHistory = new HashMap<>(); // for anomaly detection
-        System.out.println("Starting StockDataProcessing application with topic: " + topic + ", D: " + D + ", P: " + P + ", delay: " + delay);
+        Map<String, List<LogRecords>> hashMapPeriod = new HashMap<>(); // for anomaly detection
+        System.out.println("Starting StockDataProcessing application with topic: " + kafkaTopic + ", D: " + D + ", P: " + P + ", delay: " + delay);
 
         Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "stock-data-processor");
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "second-project");
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, clusterAddress);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
-        AggregationSerde aggregationSerde = new AggregationSerde();
 
         StreamsBuilder builder = new StreamsBuilder();
-        KStream<String, String> source = builder.stream(topic);
+        KStream<String, String> source = builder.stream(kafkaTopic);
         source.peek((key, value) -> System.out.println("[START]: key=" + key + ", value=" + value));
 
-        Map<String, String> symbolMap = StaticDataLoader.createHashMap(staticDataPath);
-        System.out.println("Loaded static data: " + symbolMap.size() + " entries");
+        Map<String, String> dictionary = StaticDataLoader.createHashMap(staticDataPath);
+        System.out.println("Loaded static data: " + dictionary.size() + " entries");
 
-        KStream<String, StockData> stockData = source.mapValues(value -> {
+        KStream<String, LogRecords> splittedData = source.mapValues(value -> {
             String[] fields = value.split(",");
-            return new StockData(fields[0],
+            return new LogRecords(fields[0],
                     Double.parseDouble(fields[1]),
                     Double.parseDouble(fields[2]),
                     Double.parseDouble(fields[3]),
@@ -58,64 +52,58 @@ public class StockDataProcessing {
                     Double.parseDouble(fields[5]),
                     Double.parseDouble(fields[6]),
                     fields[7]);
-        }).selectKey((oldKey, value) -> value.getStock());
+        }).selectKey((key, value) -> value.getStock());
 
         // Anomaly detection
 
-        stockData.foreach((key, value) -> {
-            String stockSymbol = value.getStock();
-            List<StockData> history = stockDataHistory.computeIfAbsent(stockSymbol, k -> new ArrayList<>());
+        splittedData.foreach((key, value) -> {
+            String name = value.getStock();
+            List<LogRecords> period = hashMapPeriod.computeIfAbsent(name, k -> new ArrayList<>());
 
             // Add the current data to the history
-            history.add(value);
+            period.add(value);
 
             // Check for anomalies if history size exceeds D
-            if (history.size() >= D) {
+            if (period.size() >= D) {
                 // Find the start and end dates of the analyzed period
-                LocalDate currentDate = value.getDate().toLocalDate();
-                LocalDate startDate = null;
+                LocalDate start = null;
+                LocalDate now = value.getDate().toLocalDate();
 
                 // Find the start date by going back D-1 days from the current date
-                LocalDate tempDate = currentDate.minusDays(D - 1);
-                while (tempDate.isBefore(currentDate) || tempDate.isEqual(currentDate)) {
+                LocalDate tempDate = now.minusDays(D - 1);
+                while (tempDate.isBefore(now) || tempDate.isEqual(now)) {
                     LocalDate finalTempDate = tempDate;
-                    if (history.stream().anyMatch(data -> data.getDate().toLocalDate().isEqual(finalTempDate))) {
-                        startDate = tempDate;
+                    if (period.stream().anyMatch(data -> data.getDate().toLocalDate().isEqual(finalTempDate))) {
+                        start = tempDate;
                         break;
                     }
                     tempDate = tempDate.plusDays(1); // Move to the next day
                 }
 
-                if (startDate == null) {
-                    System.err.println("Error: Could not find start date for the analyzed period.");
-                    return;
-                }
-
-                LocalDate endDate = currentDate; // End of the analyzed period
+                LocalDate end = now; // End of the analyzed period
 
                 // Filter the history list to include only the data points for the current stock symbol
-                LocalDate finalStartDate = startDate;
-                List<StockData> filteredHistory = history.stream()
-                        .filter(data -> data.getStock().equals(stockSymbol))
+                LocalDate finalStartDate = start;
+                List<LogRecords> batchedPeriod = period.stream()
+                        .filter(data -> data.getStock().equals(name))
                         .filter(data -> data.getDate().toLocalDate().isAfter(finalStartDate.minusDays(1)) &&
-                                data.getDate().toLocalDate().isBefore(endDate.plusDays(1)))
+                                data.getDate().toLocalDate().isBefore(end.plusDays(1)))
                         .collect(Collectors.toList());
 
-                double maxHigh = filteredHistory.stream().mapToDouble(StockData::getHigh).max().orElse(0);
-                double minLow = filteredHistory.stream().mapToDouble(StockData::getLow).min().orElse(0);
+                double maxStock = batchedPeriod.stream().mapToDouble(LogRecords::getHigh).max().orElse(0);
+                double minStock = batchedPeriod.stream().mapToDouble(LogRecords::getLow).min().orElse(0);
 
 
                 // Calculate the ratio difference between high and low prices
-                double ratio = (maxHigh - minLow) / maxHigh;
+                double diff = (maxStock - minStock) / maxStock;
 
                 // If the ratio exceeds the threshold P, log the anomaly
-                if (ratio > P) {
-                    System.out.println("DETECTED ANOMALY: Stock Symbol: " + stockSymbol +
-                            ", Analyzed Period: " + startDate + " to " + endDate +
-                            ", Max High: " + maxHigh +
-                            ", Min Low: " + minLow +
-                            ", Ratio: " + ratio);
-                    // Additional information can be logged here
+                if (diff > P) {
+                    System.out.println("DETECTED ANOMALY: Dates: " + start + " :: " + end +
+                            ", Stock Name: " + name +
+                            ", Highest Stock Price: " + maxStock +
+                            ", Lowest Stock Price: " + minStock +
+                            ", Difference: " + diff);
                 }
             }
         });
@@ -124,22 +112,22 @@ public class StockDataProcessing {
         AtomicLong id = new AtomicLong(0);
         TimeWindows timeWindows = TimeWindows.of(Duration.ofDays(D)).grace(Duration.ofDays(1));
         if (delay.equals("A")) {
-            stockData
+            splittedData
                     .map((key, value) -> {
                         // Extract year and month from the date
                         LocalDateTime date = value.getDate();
                         int year = date.getYear();
                         int month = date.getMonthValue();
                         // Create a new key with stock symbol, year, and month
-                        String newKey = value.getStock() + "-" + year + "-" + month;
+                        String newKey = value.getStock() + "." + year + "." + month;
                         return new KeyValue<>(newKey, value);
                     })
-                    .groupByKey(Grouped.with(Serdes.String(), new StockDataSerde()))
+                    .groupByKey(Grouped.with(Serdes.String(), new StockSerde()))
                     .windowedBy(TimeWindows.of(Duration.ofDays(30)).grace(Duration.ofDays(1)))
                     .aggregate(
-                            Aggregation::new,
+                            KafkaAggregator::new,
                             (aggKey, newValue, aggValue) -> aggValue.add(newValue),
-                            Materialized.<String, Aggregation, WindowStore<Bytes, byte[]>>as("aggregated-stream-store")
+                            Materialized.<String, KafkaAggregator, WindowStore<Bytes, byte[]>>as("storage")
                                     .withKeySerde(Serdes.String())
                                     .withValueSerde(new AggregationSerde())
                     )
@@ -147,11 +135,11 @@ public class StockDataProcessing {
                     .peek((windowedKey, value) -> {
                         // Extract year and month from the windowed key
                         String key = windowedKey.key();
-                        String[] parts = key.split("-");
+                        String[] parts = key.split("\\.");
                         String stockSymbol = parts[0];
                         int year = Integer.parseInt(parts[1]);
                         int month = Integer.parseInt(parts[2]);
-                        System.out.println(value.toJsonString(stockSymbol, symbolMap.getOrDefault(stockSymbol, ""), year, month, id.incrementAndGet()));
+                        System.out.println(value.toJsonString(stockSymbol, dictionary.getOrDefault(stockSymbol, ""), year, month, id.incrementAndGet()));
                     })
                     .mapValues((windowedKey, value) -> {
                         // Extract year and month from the windowed key
@@ -162,9 +150,9 @@ public class StockDataProcessing {
                         int month = Integer.parseInt(parts[2]);
 
                         // Create the JSON string
-                        return value.toJsonString(stockSymbol, symbolMap.getOrDefault(stockSymbol, ""), year, month, id.get());
+                        return value.toJsonString(stockSymbol, dictionary.getOrDefault(stockSymbol, ""), year, month, id.get());
                     })
-                    .to("aggregated-stock-data", Produced.with(WindowedSerdes.timeWindowedSerdeFrom(String.class), Serdes.String()));
+                    .to("second", Produced.with(WindowedSerdes.timeWindowedSerdeFrom(String.class), Serdes.String()));
         }
 
 

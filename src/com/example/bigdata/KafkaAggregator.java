@@ -1,14 +1,13 @@
 package com.example.bigdata;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class Aggregation {
+public class KafkaAggregator {
     private double sumClose;
     private double minLow;
     private double maxHigh;
@@ -16,7 +15,7 @@ public class Aggregation {
     private int count;
     private double avgClose;
 
-    public Aggregation() {
+    public KafkaAggregator() {
         this.sumClose = 0.0;
         this.minLow = Double.MAX_VALUE;
         this.maxHigh = Double.MIN_VALUE;
@@ -25,7 +24,7 @@ public class Aggregation {
         this.avgClose = 0.0;
     }
 
-    public Aggregation add(StockData data) {
+    public KafkaAggregator add(LogRecords data) {
         this.sumClose += data.getClose();
         this.minLow = Math.min(this.minLow, data.getLow());
         this.maxHigh = Math.max(this.maxHigh, data.getHigh());

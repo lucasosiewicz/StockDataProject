@@ -6,7 +6,7 @@ import org.apache.kafka.common.serialization.Serializer;
 
 import java.util.Map;
 
-public class StockDataSerde implements Serde<StockData> {
+public class StockSerde implements Serde<LogRecords> {
 
     @Override
     public void configure(Map<String, ?> configs, boolean isKey) {
@@ -17,24 +17,24 @@ public class StockDataSerde implements Serde<StockData> {
     }
 
     @Override
-    public Serializer<StockData> serializer() {
-        return new Serializer<StockData>() {
+    public Serializer<LogRecords> serializer() {
+        return new Serializer<LogRecords>() {
             @Override
-            public byte[] serialize(String topic, StockData data) {
+            public byte[] serialize(String topic, LogRecords data) {
                 return data.toString().getBytes();
             }
         };
     }
 
     @Override
-    public Deserializer<StockData> deserializer() {
-        return new Deserializer<StockData>() {
+    public Deserializer<LogRecords> deserializer() {
+        return new Deserializer<LogRecords>() {
             @Override
             public void configure(Map<String, ?> configs, boolean isKey) {
             }
 
             @Override
-            public StockData deserialize(String topic, byte[] data) {
+            public LogRecords deserialize(String topic, byte[] data) {
                 String value = new String(data);
                 String[] parts = value.split(",");
                 String date = null;
@@ -54,7 +54,7 @@ public class StockDataSerde implements Serde<StockData> {
                 adjClose = Double.parseDouble(parts[5].split("=")[1].trim());
                 volume = Double.parseDouble(parts[6].split("=")[1].trim());
                 stock = parts[7].split("=")[1].trim();
-                return new StockData(date, open, high, low, close, adjClose, volume, stock);
+                return new LogRecords(date, open, high, low, close, adjClose, volume, stock);
             }
 
             @Override

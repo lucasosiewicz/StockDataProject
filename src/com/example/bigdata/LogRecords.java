@@ -1,10 +1,9 @@
 package com.example.bigdata;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-public class StockData {
+public class LogRecords {
     private String date;
     private double open;
     private double high;
@@ -14,7 +13,7 @@ public class StockData {
     private double volume;
     private String stock;
 
-    public StockData(String date, double open, double high, double low, double close, double adjClose, double volume, String stock) {
+    public LogRecords(String date, double open, double high, double low, double close, double adjClose, double volume, String stock) {
         this.date = date;
         this.open = open;
         this.high = high;

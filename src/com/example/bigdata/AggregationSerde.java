@@ -8,7 +8,7 @@ import org.apache.kafka.common.serialization.Serializer;
 
 import java.util.Map;
 
-public class AggregationSerde implements Serde<Aggregation> {
+public class AggregationSerde implements Serde<KafkaAggregator> {
     private ObjectMapper objectMapper = new ObjectMapper();
 
     public AggregationSerde() {
@@ -25,10 +25,10 @@ public class AggregationSerde implements Serde<Aggregation> {
     }
 
     @Override
-    public Serializer<Aggregation> serializer() {
-        return new Serializer<Aggregation>() {
+    public Serializer<KafkaAggregator> serializer() {
+        return new Serializer<KafkaAggregator>() {
             @Override
-            public byte[] serialize(String topic, Aggregation data) {
+            public byte[] serialize(String topic, KafkaAggregator data) {
                 try {
                     return objectMapper.writeValueAsBytes(data);
                 } catch (Exception e) {
@@ -39,12 +39,12 @@ public class AggregationSerde implements Serde<Aggregation> {
     }
 
     @Override
-    public Deserializer<Aggregation> deserializer() {
-        return new Deserializer<Aggregation>() {
+    public Deserializer<KafkaAggregator> deserializer() {
+        return new Deserializer<KafkaAggregator>() {
             @Override
-            public Aggregation deserialize(String topic, byte[] data) {
+            public KafkaAggregator deserialize(String topic, byte[] data) {
                 try {
-                    return objectMapper.readValue(data, Aggregation.class);
+                    return objectMapper.readValue(data, KafkaAggregator.class);
                 } catch (Exception e) {
                     throw new RuntimeException("Deserialization failed", e);
                 }
